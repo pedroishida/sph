@@ -218,7 +218,7 @@ void System::Plot(Canvas* canvas)
 
 void System::Write(FILE* output)
 {
-    fprintf(output, "%g, %g, %g, %d, %g, %g, %g\n", lambda, k, m * Npart, npoly, dt, h, damp);
+    fprintf(output, "%g, %g, %g, %d, %d, %g, %g, %g\n", lambda, k, m, Npart, npoly, dt, h, damp);
     for (i = 0; i < particles.size(); i++) {
         fprintf(output, "%g, %g, %g\n", particles[i].x, particles[i].y, particles[i].density);
     }

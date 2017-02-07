@@ -5,15 +5,6 @@
 #include <vector>
 #include "canvas.h"
 
-typedef struct
-{
-    double x, y;
-    double vx, vy;
-    double vx0, vy0;
-    double ax, ay;
-    double density;
-}Particle;
-
 double powerN(double x, unsigned int n)
 {
     double y = 1;
@@ -49,22 +40,104 @@ double gradkernel(double x, double y, double h)
     }
 }
 
+typedef struct Particle
+{
+    double x, y;
+    double vx, vy;
+    double vx0, vy0;
+    double ax, ay;
+    double density;
+    unsigned int cell;
+}Particle;
+
+class ParticleGrid
+{
+    unsigned int i, j;
+    unsigned int grid_size;
+    unsigned int total_size;
+    unsigned int *actual_size;
+    Particle ***particles;
+    public:
+        ParticleGrid(unsigned int, unsigned int);
+        ~ParticleGrid();
+        Particle**& operator[](unsigned int);
+        unsigned int size(unsigned int);
+        int push_back(unsigned int, Particle*);
+        void clear();
+};
+
+ParticleGrid::ParticleGrid(unsigned int grid_size_to_allocate, unsigned int size_to_allocate)
+{
+    grid_size = grid_size_to_allocate;
+    total_size = size_to_allocate;
+    particles = new Particle**[grid_size];
+    actual_size = new unsigned int[grid_size];
+    for (i = 0; i < grid_size; i++) {
+        particles[i] = new Particle*[total_size];
+        for (j = 0; j < total_size; j++) {
+            particles[i][j] = NULL;
+        }
+        actual_size[i] = 0;
+    }
+}
+
+ParticleGrid::~ParticleGrid()
+{
+    for (i = 0; i < grid_size; i++) {
+        delete [] particles[i];
+    }
+    delete [] particles;
+}
+
+Particle**& ParticleGrid::operator[](unsigned int index)
+{
+    return particles[index];
+}
+
+unsigned int ParticleGrid::size(unsigned int index)
+{
+    return actual_size[index];
+}
+
+int ParticleGrid::push_back(unsigned int index, Particle* particle)
+{
+    if (actual_size[index] < total_size) {
+        particles[index][actual_size[index]] = particle;
+        actual_size[index]++;
+        return 0;
+    }
+    return 1;
+}
+
+void ParticleGrid::clear()
+{
+    for (i = 0; i < grid_size; i++) {
+        /*for (j = 0; j < actual_size[i]; j++) {
+            particles[i][j] = NULL;
+        }*/
+        actual_size[i] = 0;
+    }
+}
+
 class System
 {
     unsigned int Npart;
     unsigned int i, j;
+    int m, n;
     double dt;
     double h;
-    double m;
+    double mass;
     double nu;
     double damp;
     double kpress;
     double rho0;
     double K;
     double g;
-    double box;
+    double boundary;
     bool dam;
-    vector<Particle> particles;
+    unsigned int Ncells;
+    Particle *particles;
+    ParticleGrid *grid;
     protected:
         void SetParams();
         void Init();
@@ -93,31 +166,39 @@ System::System(unsigned int np)
 
 System::~System()
 {
+    delete particles;
+    delete grid;
 }
 
 void System::SetParams()
 {
-    dt = 0.001666;
-    h = 0.0666;
-    m = 5.0 / Npart;
+    dt = 0.003;
+    h = 0.03;
+    mass = 10.0 / Npart;
     nu = 0.005;
     damp = 8.0;
     kpress = 0.5;
-    rho0 = 2.861;
+    rho0 = 3.0;
     K = 5000.0;
     g = -9.8;
-    box = 1.5;
+    boundary = 2;
     dam = true;
 }
 
 void System::Init()
 {
-    particles.resize(Npart);
+    unsigned int totalNcells = 0;
+
+    Ncells = 1.05 * boundary / h;
+    totalNcells = Ncells * Ncells;
+
+    particles = new Particle[Npart];
+    grid = new ParticleGrid(totalNcells, Npart);
 
     srand(time(NULL));
-    for (i = 0; i < particles.size(); i++) {
-        particles[i].x = (double) rand() / RAND_MAX * box / 2 - box;
-        particles[i].y = (double) rand() / RAND_MAX * -box;
+    for (i = 0; i < Npart; i++) {
+        particles[i].x = (double) rand() / RAND_MAX * boundary / 2 - boundary;
+        particles[i].y = (double) rand() / RAND_MAX * 2 * boundary - boundary;
         particles[i].vx = 0;
         particles[i].vy = 0;
         particles[i].vx0 = 0;
@@ -136,72 +217,116 @@ void System::Run()
     double delkernx = 0, delkerny = 0;
     double xij = 0, yij = 0;
     double velocity = 0;
+    double xcells = 0, ycells = 0;
+    unsigned int totalNcells = Ncells * Ncells;
+    Particle *neighbor;
 
-    for (i = 0; i < particles.size(); i++) {
-        particles[i].density = 0;
-        particles[i].ax = 0;
-        particles[i].ay = 0;
-    }
+    grid->clear();
 
-    for (i = 0; i < particles.size(); i++) {
-        particles[i].density += m * kernel(0, 0, h);
-        for (j = i + 1; j < particles.size(); j++) {
-            rho = m * kernel(
-                particles[i].x - particles[j].x, 
-                particles[i].y - particles[j].y, 
-                h
+    for (i = 0; i < Npart; i++) {
+        xcells = (particles[i].x + 1.05 * boundary) / (2.1 * boundary);
+        ycells = (particles[i].y + 1.05 * boundary) / (2.1 * boundary);
+        if (
+            1.0 > xcells && 0 <= xcells &&
+            1.0 > ycells && 0 <= ycells
+        ) {
+            particles[i].cell = Ncells * (
+                xcells +
+                (int) (ycells * Ncells)
             );
-            particles[i].density += rho;
-            particles[j].density += rho;
-        }
-    }
-
-    for (i = 0; i < particles.size(); i++) {
-
-        particles[i].ax -= damp * particles[i].vx;
-        if (dam) {
-            if (-box / 2 < particles[i].x) {
-                particles[i].ax -= K * (particles[i].x + box / 2);
-            }
         } else {
-            if (box < particles[i].x) {
-                particles[i].ax -= K * (particles[i].x - box);
+            particles[i].cell = totalNcells;
+        }
+        if (totalNcells > particles[i].cell) {
+            grid->push_back(particles[i].cell, &particles[i]);
+        }
+    }
+
+    for (i = 0; i < Npart; i++) {
+        particles[i].density = mass * kernel(0, 0, h);
+        if (totalNcells > particles[i].cell) {
+            for (m = -1; m < 2; m++) {
+                for (n = -1; n < 2; n++) {
+                    if (
+                        !(0 == particles[i].cell / Ncells && -1 == m) &&
+                        !(0 == particles[i].cell % Ncells && -1 == n) &&
+                        !(Ncells - 1 == particles[i].cell / Ncells && 1 == m) &&
+                        !(Ncells - 1 == particles[i].cell % Ncells && 1 == n)
+
+                    ) {
+                        for (j = 0; j < grid->size(particles[i].cell + n + Ncells * m); j++) {
+                            neighbor = (*grid)[particles[i].cell + n + Ncells * m][j];
+                            if (NULL != neighbor) {
+                                rho = mass * kernel(
+                                    particles[i].x - neighbor->x,
+                                    particles[i].y - neighbor->y,
+                                    h
+                                );
+                                particles[i].density += rho;
+                            }
+                        }
+                    }
+                }
             }
         }
-        if (-box > particles[i].x) {
-            particles[i].ax -= K * (particles[i].x + box);
+    }
+
+    for (i = 0; i < Npart; i++) {
+
+        particles[i].ax = -damp * particles[i].vx;
+        if ((dam ? - boundary / 2 : boundary) < particles[i].x) {
+            particles[i].ax -= K * (particles[i].x - (dam ? - boundary / 2 : boundary));
+        } else if (-boundary > particles[i].x) {
+            particles[i].ax -= K * (particles[i].x + boundary);
         }
-        particles[i].ay -= damp * particles[i].vy;
+        particles[i].ay = -damp * particles[i].vy;
         particles[i].ay += g;
-        if (box < particles[i].y) {
-            particles[i].ay -= K * (particles[i].y - box);
-        } else if (-box > particles[i].y) {
-            particles[i].ay -= K * (particles[i].y + box);
+        if (boundary < particles[i].y) {
+            particles[i].ay -= K * (particles[i].y - boundary);
+        } else if (-boundary > particles[i].y) {
+            particles[i].ay -= K * (particles[i].y + boundary);
         }
 
-        for (j = i + 1; j < particles.size(); j++) {
-            pressure = -m * kpress * (
-                (powerN(particles[i].density / rho0, 7) - 1) /
-                (particles[i].density*particles[i].density) +
-                (powerN(particles[j].density / rho0, 7) - 1) /
-                (particles[j].density*particles[j].density)
-            );
-            xij = particles[i].x - particles[j].x;
-            yij = particles[i].y - particles[j].y;
-            delkernx = gradkernel(xij, yij, h);
-            delkerny = gradkernel(yij, xij, h);
-            viscosity = 2 * nu * m * (
-                (xij) * delkernx + (yij) * delkerny
-            ) / (powerN(xij, 2) + powerN(yij, 2) + 0.01 * h * h);
+        if (totalNcells > particles[i].cell) {
+            for (m = -1; m < 2; m++) {
+                for (n = -1; n < 2; n++) {
+                    if (
+                        !(0 == particles[i].cell / Ncells && -1 == m) &&
+                        !(0 == particles[i].cell % Ncells && -1 == n) &&
+                        !(Ncells - 1 == particles[i].cell / Ncells && 1 == m) &&
+                        !(Ncells - 1 == particles[i].cell % Ncells && 1 == n)
 
-            xij = particles[i].vx - particles[j].vx;
-            yij = particles[i].vy - particles[j].vy;
-            particles[i].ax += pressure * delkernx + (xij) * viscosity / particles[j].density;
-            particles[j].ax -= pressure * delkernx + (xij) * viscosity / particles[j].density;
-            particles[i].ay += pressure * delkerny + (yij) * viscosity / particles[i].density;
-            particles[j].ay -= pressure * delkerny + (yij) * viscosity / particles[i].density;
+                    ) {
+                        for (j = 0; j < grid->size(particles[i].cell + n + Ncells * m); j++) {
+                            neighbor = (*grid)[particles[i].cell + n + Ncells * m][j];
+                            if (NULL != neighbor) {
+                                pressure = -mass * kpress * (
+                                    (powerN(particles[i].density / rho0, 7) - 1) /
+                                    powerN(particles[i].density, 2) +
+                                    (powerN(neighbor->density / rho0, 7) - 1) /
+                                    powerN(neighbor->density, 2)
+                                );
+                                xij = particles[i].x - neighbor->x;
+                                yij = particles[i].y - neighbor->y;
+                                delkernx = gradkernel(xij, yij, h);
+                                delkerny = gradkernel(yij, xij, h);
+                                viscosity = 2 * nu * mass * (
+                                    (xij) * delkernx + (yij) * delkerny
+                                ) / (xij*xij + yij*yij + 0.01 * h * h);
+
+                                xij = particles[i].vx - neighbor->vx;
+                                yij = particles[i].vy - neighbor->vy;
+                                particles[i].ax += pressure * delkernx + (xij) * viscosity / particles[i].density;
+                                particles[i].ay += pressure * delkerny + (yij) * viscosity / particles[i].density;
+                            }
+                        }
+                    }
+                }
+            }
         }
+    }
 
+    for (i = 0; i < Npart; i++) {
         particles[i].vx = particles[i].vx0 + particles[i].ax * dt;
         particles[i].vy = particles[i].vy0 + particles[i].ay * dt;
 
@@ -231,11 +356,11 @@ void System::Plot(Canvas* canvas)
 {
     canvas->DrawPoints(
         &particles[0],
-        particles.size(),
-        -1.5 * box,
-        1.5 * box,
-        -1.5 * box,
-        1.5 * box,
+        Npart,
+        -1.1 * boundary,
+        1.1 * boundary,
+        -1.1 * boundary,
+        1.1 * boundary,
         0,
         0,
         255
@@ -246,7 +371,7 @@ int main(int argc, char** argv)
 {
     unsigned int WIDTH = 800;
     unsigned int HEIGHT = 600;
-    unsigned int N_PART = 300;
+    unsigned int N_PART = 3000;
     int handle_code = -1;
     bool running = true;
     clock_t clockCounter;
@@ -279,9 +404,10 @@ int main(int argc, char** argv)
 
         fprintf(
             stdout,
-            "%.2g\r",
+            "%.2g \r",
             ((float) CLOCKS_PER_SEC) / (clock() - clockCounter)
         );
+        fflush(stdout);
     }
 
     return 0;

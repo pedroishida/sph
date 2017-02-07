@@ -7,10 +7,10 @@
 
 using namespace std;
 
-double kernel(double x, double y, double h)
+double kernel(double x, double y, double z, double h)
 {
-    double q = sqrt(x*x + y*y) / h;
-    double C = 5 / (14 * M_PI * h*h);
+    double q = sqrt(x*x + y*y + z*z) / h;
+    double C = 1.0 / (4 * M_PI * h*h*h);
     if (0 <= q && 1 > q) {
         return C * (4 - 6 * q*q + 3 * q*q*q);
     } else if (1 <= q && 2 > q) {
@@ -20,10 +20,10 @@ double kernel(double x, double y, double h)
     }
 }
 
-double gradkernel(double x, double y, double h)
+double gradkernel(double x, double y, double z, double h)
 {
-    double q = sqrt(x*x + y*y) / h;
-    double C = 5 / (14 * M_PI * h*h);
+    double q = sqrt(x*x + y*y + z*z) / h;
+    double C = 1.0 / (4 * M_PI * h*h*h);
     if (0 <= q && 1 > q) {
         return C * (9 * q - 12) * x / (h*h);
     } else if (1 <= q && 2 > q) {
@@ -35,10 +35,10 @@ double gradkernel(double x, double y, double h)
 
 typedef struct Particle
 {
-    double x, y;
-    double vx, vy;
-    double vx0, vy0;
-    double ax, ay;
+    double x, y, z;
+    double vx, vy, vz;
+    double vx0, vy0, vz0;
+    double ax, ay, az;
     double density;
     unsigned int cell;
 }Particle;
@@ -116,7 +116,7 @@ class System
 {
     unsigned int Npart;
     unsigned int i, j;
-    int m, n;
+    int l, m, n;
     double dt;
     double h;
     double mass;
@@ -136,7 +136,7 @@ class System
         System();
         System(unsigned int, double);
         ~System();
-        void Run();
+        int Run();
         void Plot(Canvas*);
         void Write(FILE*);
 };
@@ -178,11 +178,12 @@ void System::SetParams()
 void System::Init()
 {
     double radius = 0;
+    double costheta = 0;
     double phi = 0;
     unsigned int totalNcells;
 
     Ncells = boundary / h;
-    totalNcells = Ncells * Ncells;
+    totalNcells = Ncells * Ncells * Ncells;
 
     grid = new ParticleGrid(totalNcells, Npart);
 
@@ -190,29 +191,36 @@ void System::Init()
 
     srand(time(NULL));
     for (i = 0; i < Npart; i++) {
-        radius = sqrt((double) rand() / RAND_MAX ) * R0;
+        radius = pow((double) rand() / RAND_MAX, 1.0 / 3.0) * R0;
+        costheta = ((double) rand() / RAND_MAX) * 2.0 - 1.0;
         phi = (double) rand() / RAND_MAX * 2 * M_PI;
-        particles[i].x = cos(phi) * radius;
-        particles[i].y = sin(phi) * radius;
+        particles[i].x = cos(phi) * sqrt(1 - costheta*costheta) * radius;
+        particles[i].y = sin(phi) * sqrt(1 - costheta*costheta) * radius;
+        particles[i].z = costheta * radius;
         particles[i].vx = 0;
         particles[i].vy = 0;
+        particles[i].vz = 0;
         particles[i].vx0 = 0;
         particles[i].vy0 = 0;
+        particles[i].vz0 = 0;
         particles[i].density = 0;
         particles[i].ax = 0;
         particles[i].ay = 0;
+        particles[i].az = 0;
         particles[i].cell = 0;
     }
 }
 
-void System::Run()
+int System::Run()
 {
     double rho = 0;
     double pressure = 0;
     double delkern = 0;
     double velocity = 0;
-    double xcells, ycells;
-    unsigned int totalNcells = Ncells * Ncells;
+    double acceleration = 0;
+    double xcells, ycells, zcells;
+    unsigned int totalNcells = Ncells * Ncells * Ncells;
+    unsigned int partialNcells = Ncells * Ncells;
     Particle *neighbor;
 
     grid->clear();
@@ -220,13 +228,16 @@ void System::Run()
     for (i = 0; i < Npart; i++) {
         xcells = 0.5 * (particles[i].x + boundary) / boundary;
         ycells = 0.5 * (particles[i].y + boundary) / boundary;
+        zcells = 0.5 * (particles[i].z + boundary) / boundary;
         if (
             1.0 > xcells && 0 <= xcells &&
-            1.0 > ycells && 0 <= ycells
+            1.0 > ycells && 0 <= ycells &&
+            1.0 > zcells && 0 <= zcells
         ) {
             particles[i].cell = Ncells * (
                 xcells +
-                (int) (ycells * Ncells)
+                (int) (ycells * Ncells) +
+                ((int) (zcells * Ncells)) * Ncells
             );
         } else {
             particles[i].cell = totalNcells;
@@ -237,26 +248,31 @@ void System::Run()
     }
 
     for (i = 0; i < Npart; i++) {
-        particles[i].density = mass * kernel(0, 0, h);
+        particles[i].density = mass * kernel(0, 0, 0, h);
         if (totalNcells > particles[i].cell) {
-            for (m = -1; m < 2; m++) {
-                for (n = -1; n < 2; n++) {
-                    if (
-                        !(0 == particles[i].cell / Ncells && -1 == m) &&
-                        !(0 == particles[i].cell % Ncells && -1 == n) &&
-                        !(Ncells - 1 == particles[i].cell / Ncells && 1 == m) &&
-                        !(Ncells - 1 == particles[i].cell % Ncells && 1 == n)
+            for (l = -1; l < 2; l++) {
+                for (m = -1; m < 2; m++) {
+                    for (n = -1; n < 2; n++) {
+                        if (
+                            !(0 == (particles[i].cell / (partialNcells)) && -1 == l) &&
+                            !(0 == (particles[i].cell % (partialNcells)) / Ncells && -1 == m) &&
+                            !(0 == (particles[i].cell % (partialNcells)) % Ncells && -1 == n) &&
+                            !(Ncells - 1 == (particles[i].cell / (partialNcells)) && 1 == l) &&
+                            !(Ncells - 1 == (particles[i].cell % (partialNcells)) / Ncells && 1 == m) &&
+                            !(Ncells - 1 == (particles[i].cell % (partialNcells)) % Ncells && 1 == n)
 
-                    ) {
-                        for (j = 0; j < grid->size(particles[i].cell + n + Ncells * m); j++) {
-                            neighbor = (*grid)[particles[i].cell + n + Ncells * m][j];
-                            if (NULL != neighbor) {
-                                rho = mass * kernel(
-                                    particles[i].x - neighbor->x,
-                                    particles[i].y - neighbor->y,
-                                    h
-                                );
-                                particles[i].density += rho;
+                        ) {
+                            for (j = 0; j < grid->size(particles[i].cell + n + Ncells * m + partialNcells * l); j++) {
+                                neighbor = (*grid)[particles[i].cell + n + Ncells * m + partialNcells * l][j];
+                                if (NULL != neighbor) {
+                                    rho = mass * kernel(
+                                        particles[i].x - neighbor->x,
+                                        particles[i].y - neighbor->y,
+                                        particles[i].z - neighbor->z,
+                                        h
+                                    );
+                                    particles[i].density += rho;
+                                }
                             }
                         }
                     }
@@ -268,50 +284,67 @@ void System::Run()
     for (i = 0; i < Npart; i++) {
         particles[i].ax = - damp * particles[i].vx - lambda * particles[i].x;
         particles[i].ay = - damp * particles[i].vy - lambda * particles[i].y;
+        particles[i].az = - damp * particles[i].vz - lambda * particles[i].z;
 
         if (totalNcells > particles[i].cell) {
-            for (m = -1; m < 2; m++) {
-                for (n = -1; n < 2; n++) {
-                    if (
-                        !(0 == particles[i].cell / Ncells && -1 == m) &&
-                        !(0 == particles[i].cell % Ncells && -1 == n) &&
-                        !(Ncells - 1 == particles[i].cell / Ncells && 1 == m) &&
-                        !(Ncells - 1 == particles[i].cell % Ncells && 1 == n)
+            for (l = -1; l < 2; l++) {
+                for (m = -1; m < 2; m++) {
+                    for (n = -1; n < 2; n++) {
+                        if (
+                            !(0 == (particles[i].cell / (partialNcells)) && -1 == l) &&
+                            !(0 == (particles[i].cell % (partialNcells)) / Ncells && -1 == m) &&
+                            !(0 == (particles[i].cell % (partialNcells)) % Ncells && -1 == n) &&
+                            !(Ncells - 1 == (particles[i].cell / (partialNcells)) && 1 == l) &&
+                            !(Ncells - 1 == (particles[i].cell % (partialNcells)) / Ncells && 1 == m) &&
+                            !(Ncells - 1 == (particles[i].cell % (partialNcells)) % Ncells && 1 == n)
 
-                    ) {
-                        for (j = 0; j < grid->size(particles[i].cell + n + Ncells * m); j++) {
-                            neighbor = (*grid)[particles[i].cell + n + Ncells * m][j];
-                            if (NULL != neighbor) {
-                                pressure = -mass * kpress * (
-                                    pow(particles[i].density, (1 + 1.0 / npoly) - 2) +
-                                    pow(neighbor->density, (1 + 1.0 / npoly) - 2)
-                                );
-                                delkern = gradkernel(
-                                    particles[i].x - neighbor->x,
-                                    particles[i].y - neighbor->y,
-                                    h
-                                );
-                                particles[i].ax += pressure * delkern;
-                                delkern = gradkernel(
-                                    particles[i].y - neighbor->y,
-                                    particles[i].x - neighbor->x,
-                                    h
-                                );
-                                particles[i].ay += pressure * delkern;
+                        ) {
+                            for (j = 0; j < grid->size(particles[i].cell + n + Ncells * m + partialNcells * l); j++) {
+                                neighbor = (*grid)[particles[i].cell + n + Ncells * m + partialNcells * l][j];
+                                if (NULL != neighbor) {
+                                    pressure = -mass * kpress * (
+                                        pow(particles[i].density, (1 + 1.0 / npoly) - 2) +
+                                        pow(neighbor->density, (1 + 1.0 / npoly) - 2)
+                                    );
+                                    delkern = gradkernel(
+                                        particles[i].x - neighbor->x,
+                                        particles[i].y - neighbor->y,
+                                        particles[i].z - neighbor->z,
+                                        h
+                                    );
+                                    particles[i].ax += pressure * delkern;
+                                    delkern = gradkernel(
+                                        particles[i].y - neighbor->y,
+                                        particles[i].x - neighbor->x,
+                                        particles[i].z - neighbor->z,
+                                        h
+                                    );
+                                    particles[i].ay += pressure * delkern;
+                                    delkern = gradkernel(
+                                        particles[i].z - neighbor->z,
+                                        particles[i].y - neighbor->y,
+                                        particles[i].x - neighbor->x,
+                                        h
+                                    );
+                                    particles[i].az += pressure * delkern;
+                                }
                             }
                         }
                     }
                 }
             }
         }
+        acceleration += particles[i].ax*particles[i].ax + particles[i].ay*particles[i].ay + particles[i].az*particles[i].az;
     }
 
     for (i = 0; i < Npart; i++) {
         particles[i].vx = particles[i].vx0 + particles[i].ax * dt;
         particles[i].vy = particles[i].vy0 + particles[i].ay * dt;
+        particles[i].vz = particles[i].vz0 + particles[i].az * dt;
 
         particles[i].x += particles[i].vx * dt;
         particles[i].y += particles[i].vy * dt;
+        particles[i].z += particles[i].vz * dt;
 
         velocity = particles[i].vx;
         particles[i].vx = 0.5 * (particles[i].vx + particles[i].vx0);
@@ -319,7 +352,15 @@ void System::Run()
         velocity = particles[i].vy;
         particles[i].vy = 0.5 * (particles[i].vy + particles[i].vy0);
         particles[i].vy0 = velocity;
+        velocity = particles[i].vz;
+        particles[i].vz = 0.5 * (particles[i].vz + particles[i].vz0);
+        particles[i].vz0 = velocity;
     }
+
+    if (0.0001 > acceleration / Npart) {
+        return 1;
+    }
+    return 0;
 }
 
 void System::Plot(Canvas* canvas)
@@ -341,7 +382,7 @@ void System::Write(FILE* output)
 {
     fprintf(output, "%g, %g, %g, %d, %d, %g, %g, %g\n", lambda, kpress, mass, Npart, npoly, dt, h, damp);
     for (i = 0; i < Npart; i++) {
-        fprintf(output, "%g, %g, %g\n", particles[i].x, particles[i].y, particles[i].density);
+        fprintf(output, "%g, %g, %g, %g\n", particles[i].x, particles[i].y, particles[i].z, particles[i].density);
     }
 }
 
@@ -349,9 +390,10 @@ int main(int argc, char** argv)
 {
     unsigned int WIDTH = 800;
     unsigned int HEIGHT = 600;
-    unsigned int N_PART = 1000;
+    unsigned int N_PART = 2000;
     double RADIUS = 1;
     bool running = true;
+    int stable = 0;
     clock_t clockCounter;
     FILE* output = NULL;
     Canvas canvas(WIDTH, HEIGHT);
@@ -372,7 +414,7 @@ int main(int argc, char** argv)
         running = canvas.HandleEvents();
 
         while (CLOCKS_PER_SEC / 60.0 > clock() - clockCounter) {
-            system.Run();
+            stable = system.Run();
         }
 
         canvas.Clear(0, 0, 0);
@@ -385,6 +427,9 @@ int main(int argc, char** argv)
             system.Write(output);
         }
 
+        if (stable) {
+            fprintf(stdout, "STABLE ");
+        }
         fprintf(
             stdout,
             "%.2g \r",

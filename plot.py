@@ -1,6 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
+from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
@@ -10,16 +11,18 @@ import matplotlib.pyplot as plt
 
 xs = np.array([])
 ys = np.array([])
+zs = np.array([])
 rs = np.array([])
 ds = np.array([])
 
 with open("sphstar.csv", 'r') as f:
     l, k, m, N, n, dt, h, damp = [float(x) for x in f.readline().split(',')]
     for line in f:
-        x, y, d = [float(x) for x in line.split(',')]
+        x, y, z, d = [float(x) for x in line.split(',')]
         xs = np.append(xs, x)
         ys = np.append(ys, y)
-        rs = np.append(rs, (x**2 + y**2)**0.5)
+        zs = np.append(zs, z)
+        rs = np.append(rs, (x**2 + y**2 + z**2)**0.5)
         ds = np.append(ds, d)
 
 m = N * m
@@ -51,9 +54,12 @@ plt.ylabel(r"$\frac{\rho}{\rho_{max}}$", fontsize=25, rotation=0, horizontalalig
 plt.ylim([0, 1.1])
 plt.show()
 
-plt.scatter(xs, ys, c=ds, marker='o', edgecolors='none')
-plt.text(-0.9, -0.9, label)
-plt.colorbar(label=r"$\frac{\rho}{\rho_{max}}$")
-plt.xlabel("x")
-plt.ylabel("y")
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+scatter = ax.scatter(xs, ys, zs, c=ds, marker='o', edgecolors='none')
+fig.colorbar(scatter, label=r"$\frac{\rho}{\rho_{max}}$")
+ax.text(-0.9, -0.9, -0.9, label)
+ax.set_xlabel("x")
+ax.set_ylabel("y")
+ax.set_zlabel("z")
 plt.show()

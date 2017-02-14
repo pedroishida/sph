@@ -1,6 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
+from math import gamma
 from mpl_toolkits.mplot3d import Axes3D
 import numpy as np
 import matplotlib
@@ -33,7 +34,7 @@ for d in ds:
         dmax = d
 ds = ds / dmax
 
-radius = (2.0 * k / l)**(1.0 / (2 * (1 + 1.0 / n))) * (m / np.pi)**(1.0 / (2 * (n + 1))) * (n + 1)**0.5
+radius = (2.0 * (1 + n) * k / l) ** (1.0 / (2.0 + 3.0 / n)) / (np.pi ** (3.0 / (4 * n + 6))) * (m * gamma(5.0 / 2 + n) / gamma(1 + n)) ** (1.0 / (2 * n + 3))
 print radius
 ro = np.linspace(0, radius, 20)
 do = (radius**2 - ro**2)**n

@@ -166,7 +166,7 @@ System::~System()
 void System::SetParams()
 {
     dt = 0.01;
-    h = 0.1;
+    h = 0.12;
     mass = 1.33333 / Npart;
     damp = 1.0;
     kpress = 0.25;

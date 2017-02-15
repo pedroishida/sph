@@ -166,7 +166,7 @@ System::~System()
 void System::SetParams()
 {
     dt = 0.01;
-    h = 0.12;
+    h = 0.15;
     mass = 1.33333 / Npart;
     damp = 1.0;
     kpress = 0.25;
@@ -380,9 +380,11 @@ void System::Plot(Canvas* canvas)
 
 void System::Write(FILE* output)
 {
-    fprintf(output, "%g, %g, %g, %d, %d, %g, %g, %g\n", lambda, kpress, mass, Npart, npoly, dt, h, damp);
+    fprintf(output, "lambda,kpress,mass,Npart,npoly,dt,h,damp\n");
+    fprintf(output, "%g,%g,%g,%d,%d,%g,%g,%g\n", lambda, kpress, mass, Npart, npoly, dt, h, damp);
+    fprintf(output, "x,y,z,density\n");
     for (i = 0; i < Npart; i++) {
-        fprintf(output, "%g, %g, %g, %g\n", particles[i].x, particles[i].y, particles[i].z, particles[i].density);
+        fprintf(output, "%g,%g,%g,%g\n", particles[i].x, particles[i].y, particles[i].z, particles[i].density);
     }
 }
 
@@ -390,7 +392,7 @@ int main(int argc, char** argv)
 {
     unsigned int WIDTH = 800;
     unsigned int HEIGHT = 600;
-    unsigned int N_PART = 2000;
+    unsigned int N_PART = 5000;
     double RADIUS = 1;
     bool running = true;
     int stable = 0;

@@ -17,7 +17,9 @@ rs = np.array([])
 ds = np.array([])
 
 with open("sphstar.csv", 'r') as f:
+    f.readline()
     l, k, m, N, n, dt, h, damp = [float(x) for x in f.readline().split(',')]
+    f.readline()
     for line in f:
         x, y, z, d = [float(x) for x in line.split(',')]
         xs = np.append(xs, x)

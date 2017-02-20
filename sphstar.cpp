@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <ctime>
 #include <vector>
+#include <thread>
 #include "canvas.h"
 
 using namespace std;
@@ -45,7 +46,6 @@ typedef struct Particle
 
 class ParticleGrid
 {
-    unsigned int i, j;
     unsigned int grid_size;
     unsigned int total_size;
     unsigned int *actual_size;
@@ -65,9 +65,9 @@ ParticleGrid::ParticleGrid(unsigned int grid_size_to_allocate, unsigned int size
     total_size = size_to_allocate;
     particles = new Particle**[grid_size];
     actual_size = new unsigned int[grid_size];
-    for (i = 0; i < grid_size; i++) {
+    for (unsigned int i = 0; i < grid_size; i++) {
         particles[i] = new Particle*[total_size];
-        for (j = 0; j < total_size; j++) {
+        for (unsigned int j = 0; j < total_size; j++) {
             particles[i][j] = NULL;
         }
         actual_size[i] = 0;
@@ -76,7 +76,7 @@ ParticleGrid::ParticleGrid(unsigned int grid_size_to_allocate, unsigned int size
 
 ParticleGrid::~ParticleGrid()
 {
-    for (i = 0; i < grid_size; i++) {
+    for (unsigned int i = 0; i < grid_size; i++) {
         delete [] particles[i];
     }
     delete [] particles;
@@ -104,8 +104,8 @@ int ParticleGrid::push_back(unsigned int index, Particle* particle)
 
 void ParticleGrid::clear()
 {
-    for (i = 0; i < grid_size; i++) {
-        /*for (j = 0; j < actual_size[i]; j++) {
+    for (unsigned int i = 0; i < grid_size; i++) {
+        /*for (unsigned int j = 0; j < actual_size[i]; j++) {
             particles[i][j] = NULL;
         }*/
         actual_size[i] = 0;
@@ -114,9 +114,8 @@ void ParticleGrid::clear()
 
 class System
 {
+    unsigned int Nthreads;
     unsigned int Npart;
-    unsigned int i, j;
-    int l, m, n;
     double dt;
     double h;
     double mass;
@@ -127,14 +126,20 @@ class System
     double lambda;
     double boundary;
     unsigned int Ncells;
+    thread *calcThreads;
     Particle *particles;
     ParticleGrid *grid;
     protected:
         void SetParams();
         void Init();
+        void Randomize(unsigned int, unsigned int);
+        void CalculateCell(unsigned int, unsigned int);
+        void CalculateDensity(unsigned int, unsigned int);
+        void CalculateAcceleration(unsigned int, unsigned int);
+        void CalculatePosition(unsigned int, unsigned int);
     public:
         System();
-        System(unsigned int, double);
+        System(unsigned int, double, unsigned int);
         ~System();
         int Run();
         void Plot(Canvas*);
@@ -143,14 +148,16 @@ class System
 
 System::System()
 {
+    Nthreads = 1;
     Npart = 100;
     R0 = 5;
     SetParams();
     Init();
 }
 
-System::System(unsigned int np, double radius0)
+System::System(unsigned int np, double radius0, unsigned int nt)
 {
+    Nthreads = nt;
     Npart = np;
     R0 = radius0;
     SetParams();
@@ -177,10 +184,10 @@ void System::SetParams()
 
 void System::Init()
 {
-    double radius = 0;
-    double costheta = 0;
-    double phi = 0;
     unsigned int totalNcells;
+    unsigned int dNpart = Npart / Nthreads;
+
+    calcThreads = new thread[Nthreads];
 
     Ncells = boundary / h;
     totalNcells = Ncells * Ncells * Ncells;
@@ -190,7 +197,23 @@ void System::Init()
     particles = new Particle[Npart];
 
     srand(time(NULL));
-    for (i = 0; i < Npart; i++) {
+
+    for (unsigned int i = 0; i < Nthreads; i++) {
+        calcThreads[i] = thread(&System::Randomize, this, i * dNpart, i == Nthreads - 1 ? Npart : (i + 1) * dNpart);
+    }
+    for (unsigned int i = 0; i < Nthreads; i++) {
+        calcThreads[i].join();
+    }
+
+}
+
+void System::Randomize(unsigned int start, unsigned int end)
+{
+    double radius = 0;
+    double costheta = 0;
+    double phi = 0;
+
+    for (unsigned int i = start; i < end; i++) {
         radius = pow((double) rand() / RAND_MAX, 1.0 / 3.0) * R0;
         costheta = ((double) rand() / RAND_MAX) * 2.0 - 1.0;
         phi = (double) rand() / RAND_MAX * 2 * M_PI;
@@ -213,19 +236,47 @@ void System::Init()
 
 int System::Run()
 {
-    double rho = 0;
-    double pressure = 0;
-    double delkern = 0;
-    double velocity = 0;
-    double acceleration = 0;
-    double xcells, ycells, zcells;
-    unsigned int totalNcells = Ncells * Ncells * Ncells;
-    unsigned int partialNcells = Ncells * Ncells;
-    Particle *neighbor;
+    unsigned int dNpart = Npart / Nthreads;
 
     grid->clear();
 
-    for (i = 0; i < Npart; i++) {
+    for (unsigned int i = 0; i < Nthreads; i++) {
+        calcThreads[i] = thread(&System::CalculateCell, this, i * dNpart, i == Nthreads - 1 ? Npart : (i + 1) * dNpart);
+    }
+    for (unsigned int i = 0; i < Nthreads; i++) {
+        calcThreads[i].join();
+    }
+
+    for (unsigned int i = 0; i < Nthreads; i++) {
+        calcThreads[i] = thread(&System::CalculateDensity, this, i * dNpart, i == Nthreads - 1 ? Npart : (i + 1) * dNpart);
+    }
+    for (unsigned int i = 0; i < Nthreads; i++) {
+        calcThreads[i].join();
+    }
+
+    for (unsigned int i = 0; i < Nthreads; i++) {
+        calcThreads[i] = thread(&System::CalculateAcceleration, this, i * dNpart, i == Nthreads - 1 ? Npart : (i + 1) * dNpart);
+    }
+    for (unsigned int i = 0; i < Nthreads; i++) {
+        calcThreads[i].join();
+    }
+
+    for (unsigned int i = 0; i < Nthreads; i++) {
+        calcThreads[i] = thread(&System::CalculatePosition, this, i * dNpart, i == Nthreads - 1 ? Npart : (i + 1) * dNpart);
+    }
+    for (unsigned int i = 0; i < Nthreads; i++) {
+        calcThreads[i].join();
+    }
+
+    return 0;
+}
+
+void System::CalculateCell(unsigned int start, unsigned int end)
+{
+    double xcells, ycells, zcells;
+    unsigned int totalNcells = Ncells * Ncells * Ncells;
+
+    for (unsigned int i = start; i < end; i++) {
         xcells = 0.5 * (particles[i].x + boundary) / boundary;
         ycells = 0.5 * (particles[i].y + boundary) / boundary;
         zcells = 0.5 * (particles[i].z + boundary) / boundary;
@@ -246,13 +297,21 @@ int System::Run()
             grid->push_back(particles[i].cell, &particles[i]);
         }
     }
+}
 
-    for (i = 0; i < Npart; i++) {
+void System::CalculateDensity(unsigned int start, unsigned int end)
+{
+    double rho = 0;
+    unsigned int totalNcells = Ncells * Ncells * Ncells;
+    unsigned int partialNcells = Ncells * Ncells;
+    Particle *neighbor;
+
+    for (unsigned int i = start; i < end; i++) {
         particles[i].density = mass * kernel(0, 0, 0, h);
         if (totalNcells > particles[i].cell) {
-            for (l = -1; l < 2; l++) {
-                for (m = -1; m < 2; m++) {
-                    for (n = -1; n < 2; n++) {
+            for (int l = -1; l < 2; l++) {
+                for (int m = -1; m < 2; m++) {
+                    for (int n = -1; n < 2; n++) {
                         if (
                             !(0 == (particles[i].cell / (partialNcells)) && -1 == l) &&
                             !(0 == (particles[i].cell % (partialNcells)) / Ncells && -1 == m) &&
@@ -262,7 +321,7 @@ int System::Run()
                             !(Ncells - 1 == (particles[i].cell % (partialNcells)) % Ncells && 1 == n)
 
                         ) {
-                            for (j = 0; j < grid->size(particles[i].cell + n + Ncells * m + partialNcells * l); j++) {
+                            for (unsigned int j = 0; j < grid->size(particles[i].cell + n + Ncells * m + partialNcells * l); j++) {
                                 neighbor = (*grid)[particles[i].cell + n + Ncells * m + partialNcells * l][j];
                                 if (NULL != neighbor) {
                                     rho = mass * kernel(
@@ -280,16 +339,25 @@ int System::Run()
             }
         }
     }
+}
 
-    for (i = 0; i < Npart; i++) {
+void System::CalculateAcceleration(unsigned int start, unsigned int end)
+{
+    double delkern = 0;
+    double pressure = 0;
+    unsigned int totalNcells = Ncells * Ncells * Ncells;
+    unsigned int partialNcells = Ncells * Ncells;
+    Particle *neighbor;
+
+    for (unsigned int i = start; i < end; i++) {
         particles[i].ax = - damp * particles[i].vx - lambda * particles[i].x;
         particles[i].ay = - damp * particles[i].vy - lambda * particles[i].y;
         particles[i].az = - damp * particles[i].vz - lambda * particles[i].z;
 
         if (totalNcells > particles[i].cell) {
-            for (l = -1; l < 2; l++) {
-                for (m = -1; m < 2; m++) {
-                    for (n = -1; n < 2; n++) {
+            for (int l = -1; l < 2; l++) {
+                for (int m = -1; m < 2; m++) {
+                    for (int n = -1; n < 2; n++) {
                         if (
                             !(0 == (particles[i].cell / (partialNcells)) && -1 == l) &&
                             !(0 == (particles[i].cell % (partialNcells)) / Ncells && -1 == m) &&
@@ -299,7 +367,7 @@ int System::Run()
                             !(Ncells - 1 == (particles[i].cell % (partialNcells)) % Ncells && 1 == n)
 
                         ) {
-                            for (j = 0; j < grid->size(particles[i].cell + n + Ncells * m + partialNcells * l); j++) {
+                            for (unsigned int j = 0; j < grid->size(particles[i].cell + n + Ncells * m + partialNcells * l); j++) {
                                 neighbor = (*grid)[particles[i].cell + n + Ncells * m + partialNcells * l][j];
                                 if (NULL != neighbor) {
                                     pressure = -mass * kpress * (
@@ -334,10 +402,14 @@ int System::Run()
                 }
             }
         }
-        acceleration += particles[i].ax*particles[i].ax + particles[i].ay*particles[i].ay + particles[i].az*particles[i].az;
     }
+}
 
-    for (i = 0; i < Npart; i++) {
+void System::CalculatePosition(unsigned int start, unsigned int end)
+{
+    double velocity;
+
+    for (unsigned int i = start; i < end; i++) {
         particles[i].vx = particles[i].vx0 + particles[i].ax * dt;
         particles[i].vy = particles[i].vy0 + particles[i].ay * dt;
         particles[i].vz = particles[i].vz0 + particles[i].az * dt;
@@ -356,11 +428,6 @@ int System::Run()
         particles[i].vz = 0.5 * (particles[i].vz + particles[i].vz0);
         particles[i].vz0 = velocity;
     }
-
-    if (0.0001 > acceleration / Npart) {
-        return 1;
-    }
-    return 0;
 }
 
 void System::Plot(Canvas* canvas)
@@ -383,13 +450,14 @@ void System::Write(FILE* output)
     fprintf(output, "lambda,kpress,mass,Npart,npoly,dt,h,damp\n");
     fprintf(output, "%g,%g,%g,%d,%d,%g,%g,%g\n", lambda, kpress, mass, Npart, npoly, dt, h, damp);
     fprintf(output, "x,y,z,density\n");
-    for (i = 0; i < Npart; i++) {
+    for (unsigned int i = 0; i < Npart; i++) {
         fprintf(output, "%g,%g,%g,%g\n", particles[i].x, particles[i].y, particles[i].z, particles[i].density);
     }
 }
 
 int main(int argc, char** argv)
 {
+    unsigned int THREADS = 4;
     unsigned int WIDTH = 800;
     unsigned int HEIGHT = 600;
     unsigned int N_PART = 5000;
@@ -399,7 +467,7 @@ int main(int argc, char** argv)
     clock_t clockCounter;
     FILE* output = NULL;
     Canvas canvas(WIDTH, HEIGHT);
-    System system(N_PART, RADIUS);
+    System system(N_PART, RADIUS, THREADS);
 
     if (0 != canvas.GetError()) {
         return 1;

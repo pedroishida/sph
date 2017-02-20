@@ -19,7 +19,6 @@ class Canvas
     SDL_Window* display;
     SDL_Renderer* renderer;
     SDL_Event event;
-    vector<SDL_Point> points;
     protected:
         void Init();
         void Quit();
@@ -62,27 +61,20 @@ void Canvas::DrawPoints(
     unsigned short int g,
     unsigned short int b
 ) {
-    CalculateTransformParam(leftX, rightX, bottomY, topY);
+    double x, y;
 
     if (0 < size && NULL != positions) {
-        points.resize(5 * size);
-
-        for (i = 0; i < points.size(); i+=5) {
-            j = i / 5;
-            points[i].x = positions[j].x * xScale + xTrans;
-            points[i].y = positions[j].y * yScale + yTrans;
-            points[i + 1].x = points[i].x + 1;
-            points[i + 1].y = points[i].y;
-            points[i + 2].x = points[i].x - 1;
-            points[i + 2].y = points[i].y;
-            points[i + 3].x = points[i].x;
-            points[i + 3].y = points[i].y + 1;
-            points[i + 4].x = points[i].x;
-            points[i + 4].y = points[i].y - 1;
-        }
-
+        CalculateTransformParam(leftX, rightX, bottomY, topY);
         SDL_SetRenderDrawColor(renderer, r, g, b, 255);
-        SDL_RenderDrawPoints(renderer, &points[0], points.size());
+        for (i = 0; i < size; i++) {
+            x = positions[i].x * xScale + xTrans;
+            y = positions[i].y * yScale + yTrans;
+            SDL_RenderDrawPoint(renderer, x, y);
+            SDL_RenderDrawPoint(renderer, x + 1, y);
+            SDL_RenderDrawPoint(renderer, x - 1, y);
+            SDL_RenderDrawPoint(renderer, x, y + 1);
+            SDL_RenderDrawPoint(renderer, x, y - 1);
+        }
     }
 }
 

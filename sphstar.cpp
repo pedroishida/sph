@@ -240,32 +240,33 @@ int System::Run()
 
     grid->clear();
 
-    for (unsigned int i = 0; i < Nthreads; i++) {
-        calcThreads[i] = thread(&System::CalculateCell, this, i * dNpart, i == Nthreads - 1 ? Npart : (i + 1) * dNpart);
-    }
-    for (unsigned int i = 0; i < Nthreads; i++) {
-        calcThreads[i].join();
-    }
+    CalculateCell(0, Npart);
 
     for (unsigned int i = 0; i < Nthreads; i++) {
         calcThreads[i] = thread(&System::CalculateDensity, this, i * dNpart, i == Nthreads - 1 ? Npart : (i + 1) * dNpart);
     }
     for (unsigned int i = 0; i < Nthreads; i++) {
-        calcThreads[i].join();
+        if (calcThreads[i].joinable()) {
+            calcThreads[i].join();
+        }
     }
 
     for (unsigned int i = 0; i < Nthreads; i++) {
         calcThreads[i] = thread(&System::CalculateAcceleration, this, i * dNpart, i == Nthreads - 1 ? Npart : (i + 1) * dNpart);
     }
     for (unsigned int i = 0; i < Nthreads; i++) {
-        calcThreads[i].join();
+        if (calcThreads[i].joinable()) {
+            calcThreads[i].join();
+        }
     }
 
     for (unsigned int i = 0; i < Nthreads; i++) {
         calcThreads[i] = thread(&System::CalculatePosition, this, i * dNpart, i == Nthreads - 1 ? Npart : (i + 1) * dNpart);
     }
     for (unsigned int i = 0; i < Nthreads; i++) {
-        calcThreads[i].join();
+        if (calcThreads[i].joinable()) {
+            calcThreads[i].join();
+        }
     }
 
     return 0;

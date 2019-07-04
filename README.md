@@ -14,3 +14,7 @@ To run:
 ```
 
 In the breaking dam simulation, the space bar removes the dam.
+
+Star examples [here](https://www.youtube.com/watch?v=izTRFBBQm6E) and [here](https://www.youtube.com/watch?v=sEJ3HanYQEg).
+
+Dam example [here](https://www.youtube.com/watch?v=eNLHj1OBwvA).
